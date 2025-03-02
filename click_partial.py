@@ -8,7 +8,7 @@ def _partial(mode, **arg_kwargs):
     def _argumentbundle(constructor):
         if hasattr(constructor, '__click_params__') and constructor.__click_params__:
             raise Exception("You must specify whether options are instanced or shared.")
-        def _constructor_decorator(name):
+        def _constructor_decorator(name, **construct_kwargs):
             attr_flag = f'__{constructor.__name__}_partial__'
 
             def _mangle(n):
@@ -21,8 +21,6 @@ def _partial(mode, **arg_kwargs):
                 return [o.replace('--', f'--{name}-', 1) for o in opts]
 
             def _construct(kwargs, pop):
-                construct_kwargs = {}
-
                 if pop:
                     get = kwargs.pop
                 else:
