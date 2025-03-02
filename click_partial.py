@@ -4,9 +4,12 @@ from functools import wraps
 import click
 
 
-@wraps(click.argument)
-def argument(*arg_args, **arg_kwargs):
+def _partial(mode, *arg_args, **arg_kwargs):
+    if arg_args:
+        raise Exception('You can only pass keyword arguments to this decorator.')
     def _argumentbundle(constructor):
+        if hasattr(constructor, '__click_params__') and constructor.__click_params__:
+            raise Exception("You must specify whether options are instanced or shared.")
         def _constructor_decorator(name):
             attr_flag = f'__{constructor.__name__}_partial__'
 
@@ -14,20 +17,26 @@ def argument(*arg_args, **arg_kwargs):
                 return f'{name}_{n}'
 
             def _mangle_opts(opts):
-                return [o.replace('--', f'--{name}-') for o in opts]
+                for o in opts:
+                    if o[1] != '-':
+                        raise Exception('Instanced options cannot have short synonyms.')
+                return [o.replace('--', f'--{name}-', 1) for o in opts]
 
             def _construct(kwargs, pop):
+                construct_kwargs = {}
+
                 if pop:
                     get = kwargs.pop
                 else:
                     get = kwargs.get
-                construct_kwargs = {
-                    o.name: get(o.name) for o in constructor.__click_params__
-                }
-                if hasattr(constructor, '__instanced_click_params__'):
-                    construct_kwargs.update({
-                        o.name: kwargs.pop(_mangle(o.name)) for o in constructor.__instanced_click_params__
-                    })
+
+                if hasattr(constructor, '__partial_click_params__'):
+                    for t, o in constructor.__partial_click_params__:
+                        if t == 'instanced':
+                            construct_kwargs[o.name] = kwargs.pop(_mangle(o.name))
+                        elif t == 'shared':
+                            construct_kwargs[o.name] = get(o.name)
+
                 return constructor(kwargs[name], **construct_kwargs)
 
             def _constructor_wrapper(command):
@@ -38,28 +47,63 @@ def argument(*arg_args, **arg_kwargs):
                     kwargs[name] = _construct(kwargs, pop=first)
                     return command(**kwargs)
 
-
                 if first:
                     setattr(wrapper, attr_flag, True)
-                    if hasattr(wrapper, '__click_params__'):
-                        wrapper.__click_params__.extend(constructor.__click_params__)
-                    else:
-                        wrapper.__click_params__ = constructor.__click_params__.copy()
 
-                if hasattr(constructor, '__instanced_click_params__'):
-                    for o in constructor.__instanced_click_params__:
-                        oo = deepcopy(o)
-                        oo.name = _mangle(o.name)
-                        oo.opts = _mangle_opts(o.opts)
-                        wrapper.__click_params__.append(oo)
-
-                wrapper = click.argument(name, *arg_args, **arg_kwargs)(wrapper)
+                if hasattr(constructor, '__partial_click_params__'):
+                    params = getattr(wrapper, '__click_params__', [])
+                    for t, o in constructor.__partial_click_params__:
+                        if t == 'instanced':
+                            oo = deepcopy(o)
+                            oo.name = _mangle(o.name)
+                            oo.opts = _mangle_opts(o.opts)
+                            oo.secondary_opts = _mangle_opts(o.secondary_opts)
+                            params.append(oo)
+                        elif t == 'shared':
+                            if first:
+                                params.append(o)
+                        else:
+                            raise Exception('Internal error: Invalid option type. Please report.')
+                    wrapper.__click_params__ = params
+                if mode == 'argument':
+                    wrapper = click.argument(name, **arg_kwargs)(wrapper)
+                elif mode == 'option':
+                    wrapper = click.option('--'+name, **arg_kwargs)(wrapper)
+                else:
+                    raise Exception('Internal error: Invalid mode. Please report.')
                 return wrapper
             return _constructor_wrapper
         return _constructor_decorator
     return _argumentbundle
 
+
+@wraps(click.argument)
+def argument(*args, **kwargs):
+    return _partial('argument', *args, **kwargs)
+
+
+@wraps(click.option)
+def option(*args, **kwargs):
+    return _partial('option', *args, **kwargs)
+
+
 def instanced(f):
-    f.__instanced_click_params__ = f.__click_params__
+    params = getattr(f, '__partial_click_params__', [])
+    for o in f.__click_params__:
+        if not isinstance(o, click.Option):
+            raise Exception("You can only use options.")
+        params.append(('instanced', o))
+    f.__partial_click_params__ = params
+    f.__click_params__ = []
+    return f
+
+
+def shared(f):
+    params = getattr(f, '__partial_click_params__', [])
+    for o in f.__click_params__:
+        if not isinstance(o, click.Option):
+            raise Exception("You can only use options.")
+        params.append(('shared', o))
+    f.__partial_click_params__ = params
     f.__click_params__ = []
     return f
