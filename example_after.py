@@ -33,6 +33,5 @@ def blend(image1, image2):
     ... # blend the images
 
 
-
 if __name__ == '__main__':
     cli()

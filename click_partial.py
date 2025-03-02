@@ -4,9 +4,7 @@ from functools import wraps
 import click
 
 
-def _partial(mode, *arg_args, **arg_kwargs):
-    if arg_args:
-        raise Exception('You can only pass keyword arguments to this decorator.')
+def _partial(mode, **arg_kwargs):
     def _argumentbundle(constructor):
         if hasattr(constructor, '__click_params__') and constructor.__click_params__:
             raise Exception("You must specify whether options are instanced or shared.")
@@ -68,7 +66,7 @@ def _partial(mode, *arg_args, **arg_kwargs):
                 if mode == 'argument':
                     wrapper = click.argument(name, **arg_kwargs)(wrapper)
                 elif mode == 'option':
-                    wrapper = click.option('--'+name, **arg_kwargs)(wrapper)
+                    wrapper = click.option(f'--{name}', **arg_kwargs)(wrapper)
                 else:
                     raise Exception('Internal error: Invalid mode. Please report.')
                 return wrapper
@@ -78,13 +76,13 @@ def _partial(mode, *arg_args, **arg_kwargs):
 
 
 @wraps(click.argument)
-def argument(*args, **kwargs):
-    return _partial('argument', *args, **kwargs)
+def argument(**kwargs):
+    return _partial('argument', **kwargs)
 
 
 @wraps(click.option)
-def option(*args, **kwargs):
-    return _partial('option', *args, **kwargs)
+def option(**kwargs):
+    return _partial('option', **kwargs)
 
 
 def instanced(f):
